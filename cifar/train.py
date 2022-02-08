@@ -188,7 +188,7 @@ def main(_):
                     num_classes=num_classes,
                     )
                 acc_tr = metrics.acc_dataset(state, dataset_tr)
-                res['acc_tr'] = acc_tr
+                res['acc_tr'] = f'{acc_tr:.4f}'
                 dataset_te = load_dataset(
                     ds_te, 
                     batch_dims=batch_dims_te, 
@@ -196,7 +196,7 @@ def main(_):
                     num_classes=num_classes,
                     )
                 acc_te = metrics.acc_dataset(state, dataset_te)
-                res['acc_te'] = acc_te
+                res['acc_te'] = f'{acc_te:.4f}'
                 ckpt.dict2tsv(res, res_dir+'/log.tsv')
 
 if __name__ == "__main__":
