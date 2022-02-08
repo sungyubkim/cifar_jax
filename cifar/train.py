@@ -35,6 +35,10 @@ flags.DEFINE_integer('seed', 0,
 help='random number seed')
 flags.DEFINE_bool('eval', False, 
 help='do not training')
+flags.DEFINE_integer('test_batch_size_total', 10000, 
+help='total batch size (not device-wise) for evaluation')
+flags.DEFINE_integer('log_freq',10,
+help='(epoch) frequency of logging')
 
 # tunable hparams for generalization
 flags.DEFINE_float('weight_decay', 0.0005, 
@@ -43,8 +47,6 @@ flags.DEFINE_float('peak_lr', 0.8,
 help='peak learning during learning rate schedule')
 flags.DEFINE_integer('train_batch_size_total', 1000, 
 help='total batch size (not device-wise) for training')
-flags.DEFINE_integer('test_batch_size_total', 10000, 
-help='total batch size (not device-wise) for evaluation')
 FLAGS = flags.FLAGS
 
 class TrainState(train_state.TrainState):
@@ -98,10 +100,11 @@ def opt_step(rng, state, batch):
     grad_fn = jax.grad(loss_fn, has_aux=True)
     grads, (loss, wd, acc, new_net_state) = grad_fn(state.params)
     grads = jax.lax.pmean(grads, axis_name='batch')
+    grad_norm = jnp.sum(jnp.square(ravel_pytree(grads)[0]))
     new_state = state.apply_gradients(
     grads=grads, batch_stats=new_net_state['batch_stats']
     )
-    return loss, wd, acc, new_state
+    return loss, wd, grad_norm, acc, new_state
 
 def main(_):
     num_devices = jax.device_count()
@@ -125,6 +128,7 @@ def main(_):
         FLAGS.seed,
         ]
     hparams = '_'.join(map(str, hparams))
+    res_dir = f'./res_cifar/{FLAGS.dataset}/'+hparams
     num_classes = 10 if FLAGS.dataset=='cifar10' else 100
 
     print(f'hyper-parameters : {hparams}')
@@ -142,14 +146,14 @@ def main(_):
         )
     if FLAGS.eval:
         state = checkpoints.restore_checkpoint(
-            f'./res_cifar/{FLAGS.dataset}/'+hparams,
+            res_dir,
             state,
             )
     state = replicate(state)
 
     # train model
     if not(FLAGS.eval):
-        pbar = tqdm(range(FLAGS.epoch_num))
+        pbar = tqdm(range(1,FLAGS.epoch_num+1))
         for epoch in pbar:
             train = load_dataset(
                 ds_tr, 
@@ -159,35 +163,41 @@ def main(_):
                 )
             for batch_tr in train:
                 rng, rng_ = jax.random.split(rng)
-                loss, wd, acc, state = opt_step(
+                loss, wd, grad_norm, acc, state = opt_step(
                     replicate(rng_), 
                     state, 
                     batch_tr,
                     )
-                pbar.set_postfix({
+                res = {
                     'epoch': epoch,
                     'acc' : f'{np.mean(jax.device_get(acc)):.4f}',
                     'loss': f'{np.mean(jax.device_get(loss)):.4f}',
                     'wd' : f'{np.mean(jax.device_get(wd)):.4f}',
-                    })
-        ckpt.save_ckpt(state, f'./res_cifar/{FLAGS.dataset}/'+hparams)
+                    'grad_norm' : f'{np.mean(jax.device_get(grad_norm)):.4f}',
+                    }
+                pbar.set_postfix(res)
 
-    # evaluation
-    dataset_tr = load_dataset(
-        ds_tr, 
-        batch_dims=batch_dims_te, 
-        aug=False, 
-        num_classes=num_classes,
-        )
-    acc_tr = acc_dataset(dataset_tr)
-    dataset_te = load_dataset(
-        ds_te, 
-        batch_dims=batch_dims_te, 
-        aug=False, 
-        num_classes=num_classes,
-        )
-    acc_te = acc_dataset(dataset_te)
-    print(f'tr acc : {acc_tr:.4f} | te acc : {acc_te:.4f}')
+            if (epoch%FLAGS.log_freq)==0:
+                # save model
+                ckpt.save_ckpt(state, res_dir)
+                # evaluation
+                dataset_tr = load_dataset(
+                    ds_tr, 
+                    batch_dims=batch_dims_te, 
+                    aug=False, 
+                    num_classes=num_classes,
+                    )
+                acc_tr = metrics.acc_dataset(state, dataset_tr)
+                res['acc_tr'] = acc_tr
+                dataset_te = load_dataset(
+                    ds_te, 
+                    batch_dims=batch_dims_te, 
+                    aug=False, 
+                    num_classes=num_classes,
+                    )
+                acc_te = metrics.acc_dataset(state, dataset_te)
+                res['acc_te'] = acc_te
+                ckpt.dict2tsv(res, res_dir+'/log.tsv')
 
 if __name__ == "__main__":
     app.run(main)
