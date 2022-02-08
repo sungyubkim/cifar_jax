@@ -1,0 +1,193 @@
+from typing import Any
+from functools import partial
+from absl import app, flags
+import jax
+import jax.numpy as jnp
+from jax.flatten_util import ravel_pytree
+import flax
+from flax import linen as nn
+from flax.training import train_state, checkpoints
+from flax.jax_utils import replicate
+import numpy as np
+import optax
+import tensorflow_datasets as tfds
+from tqdm import tqdm
+
+from utils import ckpt, metrics, mixup, mp
+from model import vgg, resnet
+from cifar.data import load_dataset
+
+import tensorflow as tf
+config = tf.compat.v1.ConfigProto()
+config.gpu_options.allow_growth = True
+session = tf.compat.v1.Session(config=config)
+
+# additional hyper-parameters
+flags.DEFINE_integer('epoch_num', 200, 
+help='epoch number of pre-training')
+flags.DEFINE_float('max_norm', 5.0, 
+help='maximum norm of clipped gradient')
+flags.DEFINE_enum('dataset', 'cifar100', ['cifar10', 'cifar100'],
+help='training dataset')
+flags.DEFINE_enum('model', 'resnet', ['vgg', 'resnet', 'wrn'],
+help='network architecture')
+flags.DEFINE_integer('seed', 0, 
+help='random number seed')
+flags.DEFINE_bool('eval', False, 
+help='do not training')
+
+# tunable hparams for generalization
+flags.DEFINE_float('weight_decay', 0.0005, 
+help='l2 regularization coeffcient')
+flags.DEFINE_float('peak_lr', 0.8, 
+help='peak learning during learning rate schedule')
+flags.DEFINE_integer('train_batch_size_total', 1000, 
+help='total batch size (not device-wise) for training')
+flags.DEFINE_integer('test_batch_size_total', 10000, 
+help='total batch size (not device-wise) for evaluation')
+FLAGS = flags.FLAGS
+
+class TrainState(train_state.TrainState):
+    batch_stats: Any
+
+def create_lr_sched():
+    # TODO : change 50000 to train dataset size
+    total_step = FLAGS.epoch_num * (50000 // FLAGS.train_batch_size_total)
+    warmup_step = int(0.1 * total_step)
+    return optax.warmup_cosine_decay_schedule(0.0, FLAGS.peak_lr, warmup_step, total_step)
+
+def init_state(rng, batch, num_classes):
+    # parsing model
+    if FLAGS.model=='vgg':
+        net = vgg.VGGNet(num_classes=num_classes)
+    if FLAGS.model=='resnet':
+        net = resnet.ResNet18(num_classes=num_classes)
+    elif FLAGS.model=='wrn':
+        net = resnet.WRN28_10(num_classes=num_classes)
+        
+    variables = net.init(rng, batch)
+    params, batch_stats = variables['params'], variables['batch_stats']
+    tx = optax.chain(
+    optax.clip_by_global_norm(FLAGS.max_norm),
+    optax.sgd(learning_rate=create_lr_sched(), momentum=0.9, nesterov=True)
+    )
+    state = TrainState.create(
+    apply_fn=net.apply, 
+    params=params, 
+    tx=tx, 
+    batch_stats = batch_stats,
+    ) 
+    return state
+
+@partial(jax.pmap, axis_name='batch')
+def opt_step(rng, state, batch):
+    batch = mixup.mixup(rng, batch)
+    def loss_fn(params):
+        logits, new_net_state = state.apply_fn(
+            {'params':params, 'batch_stats': state.batch_stats},
+            batch['x'], train=True, mutable=['batch_stats']
+        )
+        loss = optax.l2_loss(logits, batch['y']).sum(axis=-1).mean()
+        wd = 0.5 * jnp.sum(jnp.square(ravel_pytree(params)[0]))
+        loss_ = loss + FLAGS.weight_decay * wd
+        acc = jnp.mean(
+            jnp.argmax(logits, axis=-1) == jnp.argmax(batch['y'],axis=-1)
+            )
+        return loss_, (loss, wd, acc, new_net_state)
+
+    grad_fn = jax.grad(loss_fn, has_aux=True)
+    grads, (loss, wd, acc, new_net_state) = grad_fn(state.params)
+    grads = jax.lax.pmean(grads, axis_name='batch')
+    new_state = state.apply_gradients(
+    grads=grads, batch_stats=new_net_state['batch_stats']
+    )
+    return loss, wd, acc, new_state
+
+def main(_):
+    num_devices = jax.device_count()
+    batch_dims_tr = (num_devices, FLAGS.train_batch_size_total//num_devices)
+    batch_dims_te = (num_devices, FLAGS.test_batch_size_total//num_devices)
+    ds_tr = tfds.load(
+        "{}:3.*.*".format(FLAGS.dataset),
+        data_dir='../tensorflow_datasets',
+        split='train', 
+    ).cache()
+    ds_te = tfds.load(
+        "{}:3.*.*".format(FLAGS.dataset), 
+        data_dir='../tensorflow_datasets',
+        split='test', 
+    ).cache()
+
+    hparams = [
+        FLAGS.model, 
+        FLAGS.peak_lr,
+        FLAGS.train_batch_size_total,
+        FLAGS.seed,
+        ]
+    hparams = '_'.join(map(str, hparams))
+    num_classes = 10 if FLAGS.dataset=='cifar10' else 100
+
+    print(f'hyper-parameters : {hparams}')
+    ckpt.check_dir(f'./res_cifar/{FLAGS.dataset}')
+
+    # define pseudo-random number generator
+    rng = jax.random.PRNGKey(FLAGS.seed)
+    rng, rng_ = jax.random.split(rng)
+
+    # initialize network and optimizer
+    state = init_state(
+        rng_, 
+        jax.random.normal(rng_, (1,32,32,3)), 
+        num_classes,
+        )
+    if FLAGS.eval:
+        state = checkpoints.restore_checkpoint(
+            f'./res_cifar/{FLAGS.dataset}/'+hparams,
+            state,
+            )
+    state = replicate(state)
+
+    # train model
+    if not(FLAGS.eval):
+        pbar = tqdm(range(FLAGS.epoch_num))
+        for epoch in pbar:
+            train = load_dataset(
+                ds_tr, 
+                batch_dims=batch_dims_tr, 
+                aug=True, 
+                num_classes=num_classes,
+                )
+            for batch_tr in train:
+                rng, rng_ = jax.random.split(rng)
+                loss, wd, acc, state = opt_step(
+                    replicate(rng_), 
+                    state, 
+                    batch_tr,
+                    )
+                pbar.set_postfix({
+                    'epoch': epoch,
+                    'acc' : f'{np.mean(jax.device_get(acc)):.4f}',
+                    'loss': f'{np.mean(jax.device_get(loss)):.4f}',
+                    'wd' : f'{np.mean(jax.device_get(wd)):.4f}',
+                    })
+        ckpt.save_ckpt(state, f'./res_cifar/{FLAGS.dataset}/'+hparams)
+
+    # evaluation
+    dataset_tr = load_dataset(
+        ds_tr, 
+        batch_dims=batch_dims_te, 
+        aug=False, 
+        num_classes=num_classes,
+        )
+    acc_tr = acc_dataset(dataset_tr)
+    dataset_te = load_dataset(
+        ds_te, 
+        batch_dims=batch_dims_te, 
+        aug=False, 
+        num_classes=num_classes,
+        )
+    acc_te = acc_dataset(dataset_te)
+    print(f'tr acc : {acc_tr:.4f} | te acc : {acc_te:.4f}')
+
+if __name__ == "__main__":
+    app.run(main)

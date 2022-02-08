@@ -1,5 +1,5 @@
 # exclude result files
-res/
+res*
 res_cifar/
 tensorflow_datasets/
 .keras/

@@ -15,22 +15,20 @@ ModuleDef = Any
 # define network with flax
 class VGGNet(nn.Module):
   num_classes : int
-  width : int
-  depth : int
 
   @nn.compact
   def __call__(self, x, train=True):
     # VGG13-based architecture
     for mult in [1,2,4,8,8]:
-      depth = self.depth if mult > 2 else min(self.depth, 2)
+      depth = FLAGS.depth if mult > 2 else min(FLAGS.depth, 2)
       for d in range(depth):
-        x = nn.Conv(self.width * mult, (3, 3))(x)
+        x = nn.Conv(FLAGS.width * mult, (3, 3))(x)
         x = nn.BatchNorm(not train, momentum=0.9)(x)
         x = nn.relu(x)
       x = nn.max_pool(x, (2, 2), (2, 2), padding='SAME')
     x = x.reshape((x.shape[0],-1)) # flatten
     for i in range(3):
-      x = nn.Dense(self.width * 8)(x)
+      x = nn.Dense(FLAGS.width * 8)(x)
       x = nn.relu(x)
     x = nn.Dense(self.num_classes)(x)
     return x
