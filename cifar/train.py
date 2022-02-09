@@ -35,7 +35,7 @@ flags.DEFINE_integer('seed', 0,
 help='random number seed')
 flags.DEFINE_bool('eval', False, 
 help='do not training')
-flags.DEFINE_integer('test_batch_size_total', 10000, 
+flags.DEFINE_integer('test_batch_size_total', 1000, 
 help='total batch size (not device-wise) for evaluation')
 flags.DEFINE_integer('log_freq',10,
 help='(epoch) frequency of logging')
