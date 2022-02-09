@@ -116,8 +116,9 @@ def opt_step(rng, state, batch):
         )
     # sync and update
     grads = jax.lax.pmean(grads, axis_name='batch')
+    batch_stats = jax.lax.pmean(new_net_state['batch_stats'], axis_name='batch')
     new_state = state.apply_gradients(
-    grads=grads, batch_stats=new_net_state['batch_stats']
+    grads=grads, batch_stats=batch_stats
     )
     # log norm of gradient
     grad_norm = jnp.sum(jnp.square(ravel_pytree(grads)[0]))
@@ -219,19 +220,19 @@ def main(_):
                 pbar.set_postfix(res)
 
             if (epoch%FLAGS.log_freq)==0:
+                ckpt.save_ckpt(state, res_dir)
                 acc_tr = metrics.acc_dataset(state, eval_tr)
                 res['acc_tr'] = f'{acc_tr:.4f}'
                 acc_te = metrics.acc_dataset(state, eval_te)
                 res['acc_te'] = f'{acc_te:.4f}'
                 ckpt.dict2tsv(res, res_dir+'/log.tsv')
-                ckpt.save_ckpt(state, res_dir)
     
+    # evaluate
     res = {}
     acc_tr = metrics.acc_dataset(state, eval_tr)
     res['acc_tr'] = f'{acc_tr:.4f}'
     acc_te = metrics.acc_dataset(state, eval_te)
     res['acc_te'] = f'{acc_te:.4f}'
-    # evaluate sharpness metrics
     # Q1 : How many samples do we need? Is mini-batch (M>1000) sufficient?
     tr_hess_batch = metrics.tr_hess_batch(loss_fn, state, eval_tr[0])
     tr_hess_dataset = metrics.tr_hess_dataset(loss_fn, state, eval_tr)
@@ -247,8 +248,7 @@ def main(_):
     tr_ntk_dataset_te = metrics.tr_ntk_dataset(state, eval_te)
     res['tr_hess_dataset_te'] = f'{tr_hess_dataset_te:.4f}'
     res['tr_ntk_dataset_te'] = f'{tr_ntk_dataset_te:.4f}'
-
-    ckpt.dict2tsv(res, res_dir+'/shapness.tsv')
+    ckpt.dict2tsv(res, res_dir+'/sharpness.tsv')
 
 if __name__ == "__main__":
     app.run(main)
