@@ -70,7 +70,11 @@ def init_state(rng, batch, num_classes, num_train):
     params, batch_stats = variables['params'], variables['batch_stats']
     tx = optax.chain(
     optax.clip_by_global_norm(FLAGS.max_norm),
-    optax.sgd(learning_rate=create_lr_sched(num_train), momentum=0.9, nesterov=True)
+    optax.sgd(
+        learning_rate=create_lr_sched(num_train),
+        momentum=0.9, 
+        nesterov=True,
+        )
     )
     state = TrainState.create(
     apply_fn=net.apply, 
@@ -80,29 +84,44 @@ def init_state(rng, batch, num_classes, num_train):
     ) 
     return state
 
+def loss_fn(params, state, batch, train):
+    if train:
+        logits, new_net_state = state.apply_fn(
+            {'params':params, 'batch_stats': state.batch_stats},
+            batch['x'], train=train, mutable=['batch_stats'],
+        )
+    else:
+        logits = state.apply_fn(
+            {'params':params, 'batch_stats': state.batch_stats},
+            batch['x'], train=train,
+        )
+        new_net_state = None
+    loss = optax.l2_loss(logits, batch['y']).sum(axis=-1).mean()
+    wd = 0.5 * jnp.sum(jnp.square(ravel_pytree(params)[0]))
+    loss_ = loss + FLAGS.weight_decay * wd
+    acc = jnp.mean(
+        jnp.argmax(logits, axis=-1) == jnp.argmax(batch['y'],axis=-1)
+        )
+    return loss_, (loss, wd, acc, new_net_state)
+
 @partial(jax.pmap, axis_name='batch')
 def opt_step(rng, state, batch):
     batch = mixup.mixup(rng, batch)
-    def loss_fn(params):
-        logits, new_net_state = state.apply_fn(
-            {'params':params, 'batch_stats': state.batch_stats},
-            batch['x'], train=True, mutable=['batch_stats']
-        )
-        loss = optax.l2_loss(logits, batch['y']).sum(axis=-1).mean()
-        wd = 0.5 * jnp.sum(jnp.square(ravel_pytree(params)[0]))
-        loss_ = loss + FLAGS.weight_decay * wd
-        acc = jnp.mean(
-            jnp.argmax(logits, axis=-1) == jnp.argmax(batch['y'],axis=-1)
-            )
-        return loss_, (loss, wd, acc, new_net_state)
-
     grad_fn = jax.grad(loss_fn, has_aux=True)
-    grads, (loss, wd, acc, new_net_state) = grad_fn(state.params)
+    grads, (loss, wd, acc, new_net_state) = grad_fn(
+        state.params, 
+        state, 
+        batch, 
+        True,
+        )
+    # sync and update
     grads = jax.lax.pmean(grads, axis_name='batch')
-    grad_norm = jnp.sum(jnp.square(ravel_pytree(grads)[0]))
+    batch_stats = jax.lax.pmean(new_net_state['batch_stats'], axis_name='batch')
     new_state = state.apply_gradients(
-    grads=grads, batch_stats=new_net_state['batch_stats']
+    grads=grads, batch_stats=batch_stats
     )
+    # log norm of gradient
+    grad_norm = jnp.sum(jnp.square(ravel_pytree(grads)[0]))
     return loss, wd, grad_norm, acc, new_state
 
 def main(_):
@@ -139,7 +158,7 @@ def main(_):
     res_dir = f'./res_cifar/{FLAGS.dataset}/'+hparams
 
     print(f'hyper-parameters : {hparams}')
-    ckpt.check_dir(f'./res_cifar/{FLAGS.dataset}')
+    ckpt.check_dir(res_dir)
 
     # define pseudo-random number generator
     rng = jax.random.PRNGKey(FLAGS.seed)
@@ -160,16 +179,31 @@ def main(_):
     state = replicate(state)
 
     # train model
+    eval_tr = load_dataset(
+        ds_tr, 
+        batch_dims=batch_dims_te, 
+        aug=False, 
+        num_classes=num_classes,
+        )
+    eval_te = load_dataset(
+        ds_te, 
+        batch_dims=batch_dims_te, 
+        aug=False, 
+        num_classes=num_classes,
+        )
+    eval_tr = list(eval_tr)
+    eval_te = list(eval_te)
+
     if not(FLAGS.eval):
         pbar = tqdm(range(1,FLAGS.epoch_num+1))
         for epoch in pbar:
-            train = load_dataset(
+            train_dataset = load_dataset(
                 ds_tr, 
                 batch_dims=batch_dims_tr, 
                 aug=True, 
                 num_classes=num_classes,
                 )
-            for batch_tr in train:
+            for batch_tr in train_dataset:
                 rng, rng_ = jax.random.split(rng)
                 loss, wd, grad_norm, acc, state = opt_step(
                     replicate(rng_), 
@@ -186,26 +220,36 @@ def main(_):
                 pbar.set_postfix(res)
 
             if (epoch%FLAGS.log_freq)==0:
-                # save model
-                ckpt.save_ckpt(state, res_dir)
-                # evaluation
-                dataset_tr = load_dataset(
-                    ds_tr, 
-                    batch_dims=batch_dims_te, 
-                    aug=False, 
-                    num_classes=num_classes,
-                    )
-                acc_tr = metrics.acc_dataset(state, dataset_tr)
+                acc_tr = metrics.acc_dataset(state, eval_tr)
                 res['acc_tr'] = f'{acc_tr:.4f}'
-                dataset_te = load_dataset(
-                    ds_te, 
-                    batch_dims=batch_dims_te, 
-                    aug=False, 
-                    num_classes=num_classes,
-                    )
-                acc_te = metrics.acc_dataset(state, dataset_te)
+                acc_te = metrics.acc_dataset(state, eval_te)
                 res['acc_te'] = f'{acc_te:.4f}'
                 ckpt.dict2tsv(res, res_dir+'/log.tsv')
+    
+    res = {}
+    acc_tr = metrics.acc_dataset(state, eval_tr)
+    res['acc_tr'] = f'{acc_tr:.4f}'
+    acc_te = metrics.acc_dataset(state, eval_te)
+    res['acc_te'] = f'{acc_te:.4f}'
+    # evaluate sharpness metrics
+    # Q1 : How many samples do we need? Is mini-batch (M>1000) sufficient?
+    tr_hess_batch = metrics.tr_hess_batch(loss_fn, state, eval_tr[0])
+    tr_hess_dataset = metrics.tr_hess_dataset(loss_fn, state, eval_tr)
+    tr_ntk_batch = metrics.tr_ntk_batch(state, eval_tr[0])
+    tr_ntk_dataset = metrics.tr_ntk_dataset(state, eval_tr)
+    res['tr_hess_batch'] = f'{tr_hess_batch:.4f}'
+    res['tr_hess_dataset'] = f'{tr_hess_dataset:.4f}'
+    res['tr_ntk_batch'] = f'{tr_ntk_batch:.4f}'
+    res['tr_ntk_dataset'] = f'{tr_ntk_dataset:.4f}'
+
+    # Q2 : Is loss landscape for test dataset similar to train dataset?
+    tr_hess_dataset_te = metrics.tr_hess_dataset(loss_fn, state, eval_te)
+    tr_ntk_dataset_te = metrics.tr_ntk_dataset(state, eval_te)
+    res['tr_hess_dataset_te'] = f'{tr_hess_dataset_te:.4f}'
+    res['tr_ntk_dataset_te'] = f'{tr_ntk_dataset_te:.4f}'
+
+    ckpt.dict2tsv(res, res_dir+'/shapness.tsv')
+    ckpt.save_ckpt(state, res_dir)
 
 if __name__ == "__main__":
     app.run(main)
