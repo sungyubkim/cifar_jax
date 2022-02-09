@@ -72,9 +72,9 @@ def tr_hess_dataset(loss_fn, state, dataset):
     tr_hess_total = 0.
     n_total = 0
     for batch in tqdm(dataset):
-        tr_hess = tr_hess_batch(loss_fn, state, batch)
         batch_shape = batch['x'].shape
         n = batch_shape[0] * batch_shape[1]
+        tr_hess = tr_hess_batch(loss_fn, state, batch)
         tr_hess_total += tr_hess * n
         n_total += n
     tr_hess_total /= n_total
@@ -117,10 +117,10 @@ def tr_ntk_dataset(state, dataset):
     tr_ntk_total = 0.
     n_total = 0
     for batch in tqdm(dataset):
-        tr_ntk = tr_ntk_batch(state, batch)
-        tr_ntk_total += tr_ntk * n
         batch_shape = batch['x'].shape
         n = batch_shape[0] * batch_shape[1]
+        tr_ntk = tr_ntk_batch(state, batch)
+        tr_ntk_total += tr_ntk * n
         n_total += n
     tr_ntk_total /= n_total
     return tr_ntk_total

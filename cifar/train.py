@@ -116,9 +116,8 @@ def opt_step(rng, state, batch):
         )
     # sync and update
     grads = jax.lax.pmean(grads, axis_name='batch')
-    batch_stats = jax.lax.pmean(new_net_state['batch_stats'], axis_name='batch')
     new_state = state.apply_gradients(
-    grads=grads, batch_stats=batch_stats
+    grads=grads, batch_stats=new_net_state['batch_stats']
     )
     # log norm of gradient
     grad_norm = jnp.sum(jnp.square(ravel_pytree(grads)[0]))
@@ -225,6 +224,7 @@ def main(_):
                 acc_te = metrics.acc_dataset(state, eval_te)
                 res['acc_te'] = f'{acc_te:.4f}'
                 ckpt.dict2tsv(res, res_dir+'/log.tsv')
+                ckpt.save_ckpt(state, res_dir)
     
     res = {}
     acc_tr = metrics.acc_dataset(state, eval_tr)
@@ -249,7 +249,6 @@ def main(_):
     res['tr_ntk_dataset_te'] = f'{tr_ntk_dataset_te:.4f}'
 
     ckpt.dict2tsv(res, res_dir+'/shapness.tsv')
-    ckpt.save_ckpt(state, res_dir)
 
 if __name__ == "__main__":
     app.run(main)
