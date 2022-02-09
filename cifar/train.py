@@ -52,13 +52,12 @@ FLAGS = flags.FLAGS
 class TrainState(train_state.TrainState):
     batch_stats: Any
 
-def create_lr_sched():
-    # TODO : change 50000 to train dataset size
-    total_step = FLAGS.epoch_num * (50000 // FLAGS.train_batch_size_total)
+def create_lr_sched(num_train):
+    total_step = FLAGS.epoch_num * (num_train // FLAGS.train_batch_size_total)
     warmup_step = int(0.1 * total_step)
     return optax.warmup_cosine_decay_schedule(0.0, FLAGS.peak_lr, warmup_step, total_step)
 
-def init_state(rng, batch, num_classes):
+def init_state(rng, batch, num_classes, num_train):
     # parsing model
     if FLAGS.model=='vgg':
         net = vgg.VGGNet(num_classes=num_classes)
@@ -71,7 +70,7 @@ def init_state(rng, batch, num_classes):
     params, batch_stats = variables['params'], variables['batch_stats']
     tx = optax.chain(
     optax.clip_by_global_norm(FLAGS.max_norm),
-    optax.sgd(learning_rate=create_lr_sched(), momentum=0.9, nesterov=True)
+    optax.sgd(learning_rate=create_lr_sched(num_train), momentum=0.9, nesterov=True)
     )
     state = TrainState.create(
     apply_fn=net.apply, 
@@ -110,16 +109,25 @@ def main(_):
     num_devices = jax.device_count()
     batch_dims_tr = (num_devices, FLAGS.train_batch_size_total//num_devices)
     batch_dims_te = (num_devices, FLAGS.test_batch_size_total//num_devices)
-    ds_tr = tfds.load(
+    ds_tr, ds_info = tfds.load(
         "{}:3.*.*".format(FLAGS.dataset),
         data_dir='../tensorflow_datasets',
-        split='train', 
-    ).cache()
+        split='train',
+        with_info=True,
+    )
     ds_te = tfds.load(
         "{}:3.*.*".format(FLAGS.dataset), 
         data_dir='../tensorflow_datasets',
         split='test', 
-    ).cache()
+    )
+    # extract info. of dataset
+    ds_tr, ds_te = ds_tr.cache(), ds_te.cache()
+    img_shape = ds_info.features['image'].shape
+    label_info = ds_info.features['label']
+    class_names = label_info.names
+    num_classes = label_info.num_classes
+    num_train = ds_info.splits['train'].num_examples
+    num_test = ds_info.splits['test'].num_examples
 
     hparams = [
         FLAGS.model, 
@@ -129,7 +137,6 @@ def main(_):
         ]
     hparams = '_'.join(map(str, hparams))
     res_dir = f'./res_cifar/{FLAGS.dataset}/'+hparams
-    num_classes = 10 if FLAGS.dataset=='cifar10' else 100
 
     print(f'hyper-parameters : {hparams}')
     ckpt.check_dir(f'./res_cifar/{FLAGS.dataset}')
@@ -141,8 +148,9 @@ def main(_):
     # initialize network and optimizer
     state = init_state(
         rng_, 
-        jax.random.normal(rng_, (1,32,32,3)), 
+        jax.random.normal(rng_, (1, *img_shape)), 
         num_classes,
+        num_train,
         )
     if FLAGS.eval:
         state = checkpoints.restore_checkpoint(
