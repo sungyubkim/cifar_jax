@@ -9,7 +9,7 @@ A simple implementation of CIFAR training.
 ## Additional supports
 * Multi GPU training implemented with `jax.pmap` (refer `./cifar/train.py `and `./utils/mp.py`)
 * MixUp regularization. (refer `./utils/mixup.py`)
-* Sharpness metrics (e.g. trace of Hessian/empirical NTK) for model selection. (refer `./utils/metrics.py`)
+* Sharpness metrics (e.g. trace of Hessian/empirical NTK) implemented with Hutchison's method for model selection. (refer `./utils/metrics.py`)
 
 # How to?
 
