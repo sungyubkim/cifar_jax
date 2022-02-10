@@ -4,7 +4,7 @@ A simple implementation of CIFAR training.
 
 * Dataset : CIFAR-10/100 (refer `./cifar/data.py`)
 * Network architectures : VGGNet, ResNet, Wide ResNet (refer `./model/*`)
-* Cosine annealing scheduling with 10% initial steps for learning rate warmup.
+* Cosine annealing scheduling with 10% initial steps for learning rate warmup. (refer `./cifar/train.py`)
 
 ## Additional supports
 * Multi GPU training implemented with `jax.pmap` (refer `./cifar/train.py `and `./utils/mp.py`)
@@ -28,3 +28,11 @@ bash run.sh
 ```
 
 # Results
+
+We provide two log files 
+
+* `./res_cifar/(hyper-parameters)/log.tsv` : training log along epochs 
+    * loss, accuracy for train/test, norm of weight/gradient
+* `./res_cifar/(hyper-parameters)/sharpness.tsv` : sharpness log at terminal point (due to computation time)
+    * trace of Hessian for single batch & entire train/test dataset
+    * trace of empirical NTK for single batch & entire train/test dataset
