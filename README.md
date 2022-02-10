@@ -33,6 +33,6 @@ We provide two log files
 
 * `./res_cifar/(hyper-parameters)/log.tsv` : training log along epochs 
     * loss, accuracy for train/test, norm of weight/gradient
-* `./res_cifar/(hyper-parameters)/sharpness.tsv` : sharpness log at terminal point (due to computation time)
+* `./res_cifar/(hyper-parameters)/sharpness.tsv` : sharpness log at terminal point (due to computing time)
     * trace of Hessian for single batch & entire train/test dataset
     * trace of empirical NTK for single batch & entire train/test dataset
