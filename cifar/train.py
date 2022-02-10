@@ -149,7 +149,8 @@ def main(_):
     num_test = ds_info.splits['test'].num_examples
 
     hparams = [
-        FLAGS.model, 
+        FLAGS.model,
+        FLAGS.beta,
         FLAGS.peak_lr,
         FLAGS.train_batch_size_total,
         FLAGS.seed,
