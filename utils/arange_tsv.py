@@ -34,8 +34,9 @@ def reduce_random_seed(log_files:list):
             df_list = []
             for i in range(4):
                 trial_path = generate_trial_path(train_setting, i)
-                trial_log = pd.read_csv(f'{res_path}/{trial_path}/sharpness.tsv', sep='\t').to_dict(orient='records')[-1]
-                df_list.append(trial_log)
+                if os.path.exists(f'{res_path}/{trial_path}/sharpness.tsv'):
+                    trial_log = pd.read_csv(f'{res_path}/{trial_path}/sharpness.tsv', sep='\t').to_dict(orient='records')[-1]
+                    df_list.append(trial_log)
             df = pd.DataFrame(df_list)
             # average multiple random seed
             new_df = {'train_setting' : f'{train_setting}'}
