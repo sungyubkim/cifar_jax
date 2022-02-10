@@ -36,3 +36,17 @@ We provide two log files
 * `./res_cifar/(hyper-parameters)/sharpness.tsv` : sharpness log at terminal point (due to computing time)
     * trace of Hessian for single batch & entire train/test dataset
     * trace of empirical NTK for single batch & entire train/test dataset
+
+## Benchmark results
+
+* Witout MixUp
+
+
+
+* With Mixup
+
+## Questions
+
+* Q1 : How many samples do we need? Is single mini-batch (M>1000) representative?
+
+* Q2 : Is loss landscape for test dataset similar to the train dataset?
