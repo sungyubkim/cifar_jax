@@ -42,7 +42,7 @@ We provide two log files
 
 ## Benchmark results (averaged on 4 random seeds)
 
-|  	| CIFAR-10 	| CIFAR-100 	| training time |
+|  	| CIFAR-10 	| CIFAR-100 	| training time (w. 8 GPU) |
 |---	|---	|---	|---	|
 | VGGNet 	| 0.9432 ± 0.0010 | 0.7463 ± 0.0023 | 12 min/model |
 | ResNet-18 | 0.9566 ± 0.0025 | 0.7895 ± 0.0030 | 20 min/model |
