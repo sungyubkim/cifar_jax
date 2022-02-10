@@ -25,6 +25,9 @@ python3 -m cifar.train --eval
 
 # train multiple models with run.sh
 bash run.sh
+
+# arange tsv for multiple random seeds
+python3 -m utils.arange_tsv
 ```
 
 # Results
@@ -37,16 +40,18 @@ We provide two log files
     * trace of Hessian for single batch & entire train/test dataset
     * trace of empirical NTK for single batch & entire train/test dataset
 
-## Benchmark results
+## Benchmark results (averaged on 4 random seeds)
 
-* Witout MixUp
+* With Mixup (alpha=0.4)
 
-
-
-* With Mixup
+|  	| CIFAR-10 	| CIFAR-100 	|
+|---	|---	|---	|
+| VGGNet 	| 0.9432 ± 0.0010 | 0.7463 ± 0.0023 |
+| ResNet-18 | 0.9566 ± 0.0025 |  	|
+| WRN28-10 	| 0.9618 ± 0.0025 |  	|
 
 ## Questions
 
-* Q1 : How many samples do we need? Is single mini-batch (M>1000) representative?
+* Q1 : How many samples do we need for reliable estimation?
 
 * Q2 : Is loss landscape for test dataset similar to the train dataset?
