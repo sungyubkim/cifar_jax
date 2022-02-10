@@ -6,7 +6,7 @@ A simple implementation of CIFAR training.
 * Network architectures : VGGNet, ResNet, Wide ResNet (refer `./model/*`)
 * Cosine annealing scheduling with 10% initial steps for learning rate warmup.
 
-## additional support
+## Additional supports
 * Multi GPU training implemented with `jax.pmap` (refer `./cifar/train.py `and `./utils/mp.py`)
 * MixUp regularization. (refer `./utils/mixup.py`)
 * Sharpness metrics (e.g. trace of Hessian/empirical NTK) for model selection. (refer `./utils/metrics.py`)
@@ -17,7 +17,7 @@ A simple implementation of CIFAR training.
 # train single model (multi GPU)
 python3 -m cifar.train
 
-# train single model (single GPU)
+# train single model (single GPU) : equivalent to jax.jit
 CUDA_VISIBLE_DEVICES=0 python3 -m cifar.train
 
 # eval trained model
