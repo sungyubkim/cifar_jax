@@ -2,14 +2,14 @@
 
 A simple implementation of CIFAR training.
 
-* dataset : CIFAR-10/100 (refer ./cifar/data.py)
-* network architectures : VGGNet, ResNet, Wide ResNet (refer ./model/*)
-* cosine annealing scheduling with 10% steps for warmup.
+* Dataset : CIFAR-10/100 (refer `./cifar/data.py`)
+* Network architectures : VGGNet, ResNet, Wide ResNet (refer `./model/*`)
+* Cosine annealing scheduling with 10% initial steps for learning rate warmup.
 
 ## additional support
-* Multi GPU training (refer ./cifar/train.py and ./utils/mp.py)
-* MixUp regularization. (refer ./utils/mixup.py)
-* Sharpness metrics (e.g. trace of Hessian/empirical NTK) for model selection. (refer ./utils/metrics.py)
+* Multi GPU training implemented with `jax.pmap` (refer `./cifar/train.py `and `./utils/mp.py`)
+* MixUp regularization. (refer `./utils/mixup.py`)
+* Sharpness metrics (e.g. trace of Hessian/empirical NTK) for model selection. (refer `./utils/metrics.py`)
 
 # How to?
 
