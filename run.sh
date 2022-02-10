@@ -8,7 +8,7 @@ do
         do
             for seed in 0 1 2 3
             do
-                ckpt_dir="./res_cifar/${dataset}/${model}_0.8_1000_${seed}"
+                ckpt_dir="./res_cifar/${dataset}/${model}_${beta}_0.8_1000_${seed}"
                 if [ -d "${ckpt_dir}" ];then
                     echo "There is already ${ckpt_dir}."
                 else
