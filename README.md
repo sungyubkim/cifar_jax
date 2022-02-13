@@ -42,11 +42,21 @@ We provide two log files
 
 ## Benchmark results (averaged on 4 random seeds)
 
+* without MixUp
+
 |  	| CIFAR-10 	| CIFAR-100 	| training time (w. 8 GPU) |
 |---	|---	|---	|---	|
-| VGGNet 	| 0.9432 ± 0.0010 | 0.7463 ± 0.0023 | 12 min/model |
-| ResNet-18 | 0.9566 ± 0.0025 | 0.7895 ± 0.0030 | 20 min/model |
-| WRN28-10 	| 0.9618 ± 0.0025 | 0.8022 ± 0.0002 | 60 min/model |
+| VGGNet 	| 0.9433 ± 0.0017 | 0.7464 ± 0.0007 | 12 min/model |
+| ResNet-18 | 0.9567 ± 0.0008 | 0.7877 ± 0.0029 | 20 min/model |
+| WRN28-10 	| 0.9617 ± 0.0011 | 0.8000 ± 0.0028 | 60 min/model |
+
+* with MixUp (alpha=0.4)
+
+|  	| CIFAR-10 	| CIFAR-100 	| training time (w. 8 GPU) |
+|---	|---	|---	|---	|
+| VGGNet 	| 0.9496 ± 0.0010 | 0.7505 ± 0.0022 | 12 min/model |
+| ResNet-18 | 0.9635 ± 0.0005 | 0.7980 ± 0.0027 | 20 min/model |
+| WRN28-10 	| 0.9675 ± 0.0011 | 0.8057 ± 0.0008 | 60 min/model |
 
 ## Questions
 
